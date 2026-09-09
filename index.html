@@ -62,15 +62,17 @@
         .actions {
             margin-top: 15px;
             display: none;
+            flex-direction: column;
+            gap: 10px;
         }
         .action-btn {
             width: 100%;
             padding: 15px;
-            margin: 5px 0;
             border: none;
             border-radius: 5px;
             font-size: 16px;
             cursor: pointer;
+            font-weight: bold;
         }
         .track-btn {
             background: #388e3c;
@@ -106,6 +108,28 @@
             background: #e8f5e9;
             color: #2e7d32;
         }
+        .status.info {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        .instructions {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .instructions ol {
+            margin-left: 20px;
+        }
+        .instructions li {
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -113,7 +137,7 @@
         <h1>📦 Rastrear CTT</h1>
         
         <button class="camera-btn" onclick="document.getElementById('cameraInput').click()">
-            📷 Tirar Foto à Etiqueta
+             Tirar Foto à Etiqueta
         </button>
         
         <input type="file" id="cameraInput" accept="image/*" capture="environment" onchange="handleImage(event)">
@@ -123,19 +147,26 @@
         <div id="trackingNumber" class="tracking-number"></div>
         
         <div id="actions" class="actions">
-            <button class="action-btn track-btn" onclick="trackCTT()">
-                🔍 Abrir Site CTT
+            <button class="action-btn copy-btn" onclick="copyAndOpen()">
+                📋 Copiar e Abrir Site CTT
             </button>
-            <button class="action-btn copy-btn" onclick="copyToClipboard()">
-                📋 Copiar Número
-            </button>
+        </div>
+        
+        <div id="instructions" class="instructions" style="display: none;">
+            <h3>📌 Como usar:</h3>
+            <ol>
+                <li>O número já foi copiado!</li>
+                <li>No site dos CTT, clica na caixa de pesquisa</li>
+                <li>Faz "Colar" (toque longo no telemóvel)</li>
+                <li>Clica em "Pesquisar"</li>
+            </ol>
         </div>
         
         <div class="manual-input">
             <p style="margin: 15px 0 10px; color: #666;">Ou introduz manualmente:</p>
             <input type="text" id="manualNumber" placeholder="Ex: RL507388827PT">
             <button class="action-btn track-btn" onclick="trackManual()">
-                Pesquisar
+                Copiar e Pesquisar
             </button>
         </div>
         
@@ -150,51 +181,82 @@
             const file = event.target.files[0];
             if (!file) return;
 
-            // Mostrar preview
             const preview = document.getElementById('preview');
             preview.src = URL.createObjectURL(file);
             preview.style.display = 'block';
 
-            showStatus('A ler referência...', 'success');
+            showStatus(' A processar imagem... (pode demorar 5-10 segundos)', 'info');
 
             try {
-                // OCR com Tesseract.js
+                // OCR com configurações otimizadas
                 const result = await Tesseract.recognize(
                     file,
-                    'por',
-                    { logger: m => console.log(m) }
+                    'eng', // Inglês funciona melhor para códigos alfanuméricos
+                    {
+                        logger: m => console.log(m),
+                        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                        tessedit_pageseg_mode: '6', // Assume uma única linha de texto
+                    }
                 );
 
                 const text = result.data.text;
                 console.log('Texto extraído:', text);
+                console.log('Confiança:', result.data.confidence);
 
-                // Procurar padrão CTT: 2 letras + 9 números + 2 letras
-                const cttPattern = /[A-Z]{2}\s?\d{4}\s?\d{4}\s?\d\s?[A-Z]{2}/i;
-                const match = text.match(cttPattern);
+                // Procurar múltiplos padrões CTT
+                const patterns = [
+                    /[A-Z]{2}\s*\d{4}\s*\d{4}\s*\d\s*[A-Z]{2}/i,  // RL 5073 8882 7 PT
+                    /[A-Z]{2}\d{9}[A-Z]{2}/i,                      // RL507388827PT
+                    /[A-Z]{2}\s*\d{4}\s*\d{4}\s*\d{2}[A-Z]{2}/i,  // Formato alternativo
+                ];
 
-                if (match) {
-                    currentTrackingNumber = match[0].replace(/\s/g, '').toUpperCase();
+                let found = false;
+                for (let pattern of patterns) {
+                    const match = text.match(pattern);
+                    if (match) {
+                        currentTrackingNumber = match[0].replace(/\s/g, '').toUpperCase();
+                        
+                        // Validar se tem o formato correto (2 letras + 9 números + 2 letras)
+                        if (/^[A-Z]{2}\d{9}[A-Z]{2}$/.test(currentTrackingNumber)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (found) {
                     document.getElementById('trackingNumber').textContent = currentTrackingNumber;
                     document.getElementById('trackingNumber').style.display = 'block';
-                    document.getElementById('actions').style.display = 'block';
-                    showStatus('✅ Referência encontrada!', 'success');
+                    document.getElementById('actions').style.display = 'flex';
+                    showStatus(`✅ Encontrado: ${currentTrackingNumber}`, 'success');
                 } else {
-                    showStatus('❌ Não encontrei a referência. Tenta outra foto ou introduz manualmente.', 'error');
+                    showStatus('❌ Não encontrei referência CTT. Tenta outra foto ou introduz manualmente.', 'error');
+                    console.log('Texto completo:', text);
                 }
             } catch (error) {
-                console.error(error);
+                console.error('Erro OCR:', error);
                 showStatus('❌ Erro ao processar imagem', 'error');
             }
         }
 
-        function trackCTT() {
+        async function copyAndOpen() {
             if (!currentTrackingNumber) return;
             
-            const url = `https://www.ctt.pt/feapl_2/app/open/objectSearch/objectSearch.jspx?objects=${currentTrackingNumber}&request_locale=pt`;
-            window.open(url, '_blank');
+            // Copiar para clipboard
+            await copyToClipboard(currentTrackingNumber);
+            
+            // Mostrar instruções
+            document.getElementById('instructions').style.display = 'block';
+            
+            // Abrir site dos CTT (página inicial de pesquisa)
+            setTimeout(() => {
+                window.open('https://www.ctt.pt/feapl_2/app/open/objectSearch/objectSearch.jspx?request_locale=pt', '_blank');
+            }, 500);
+            
+            showStatus('📋 Número copiado! Cola no site dos CTT.', 'success');
         }
 
-        function trackManual() {
+        async function trackManual() {
             const input = document.getElementById('manualNumber').value.trim();
             if (!input) {
                 showStatus('Introduz um número de rastreio', 'error');
@@ -202,22 +264,33 @@
             }
             
             currentTrackingNumber = input.replace(/\s/g, '').toUpperCase();
-            trackCTT();
+            
+            // Validar formato
+            if (!/^[A-Z]{2}\d{9}[A-Z]{2}$/.test(currentTrackingNumber)) {
+                showStatus('Formato inválido. Deve ser: 2 letras + 9 números + 2 letras', 'error');
+                return;
+            }
+            
+            await copyAndOpen();
         }
 
-        async function copyToClipboard() {
+        async function copyToClipboard(text) {
             try {
-                await navigator.clipboard.writeText(currentTrackingNumber);
-                showStatus('📋 Copiado para a área de transferência!', 'success');
+                await navigator.clipboard.writeText(text);
             } catch (err) {
-                // Fallback para iOS
+                // Fallback para iOS/Android
                 const textArea = document.createElement('textarea');
-                textArea.value = currentTrackingNumber;
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
                 document.body.appendChild(textArea);
                 textArea.select();
-                document.execCommand('copy');
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                }
                 document.body.removeChild(textArea);
-                showStatus('📋 Copiado!', 'success');
             }
         }
 
@@ -227,20 +300,11 @@
             status.className = 'status ' + type;
             status.style.display = 'block';
             
-            setTimeout(() => {
-                status.style.display = 'none';
-            }, 3000);
-        }
-
-        // Service Worker para funcionar offline (PWA)
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('data:text/javascript,' + encodeURIComponent(`
-                self.addEventListener('fetch', event => {
-                    event.respondWith(fetch(event.request).catch(() => {
-                        return new Response('Offline');
-                    }));
-                });
-            `)).catch(() => {});
+            if (type !== 'info') {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 5000);
+            }
         }
     </script>
 </body>
